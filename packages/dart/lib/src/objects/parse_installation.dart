@@ -64,23 +64,57 @@ class ParseInstallation extends ParseObject {
     return (await _getFromLocalStore()) ?? (await _createInstallation());
   }
 
-  /// Returns the current installation's UUID without parsing the full
-  /// installation document. Caches the value in [_currentInstallationId] after
-  /// the first resolution so hot paths (e.g. `ParseClient.buildHeaders`, which
-  /// runs on every HTTP request) don't repeatedly hit the local store and
-  /// re-decode JSON. The install ID is immutable for the lifetime of the app
-  /// on a given device, so the cache never needs invalidation.
+  /// Returns the current installation's UUID. Hot path for
+  /// `ParseClient.buildHeaders`, which runs on every HTTP request.
+  ///
+  /// The first call reads `keyInstallationId` directly from the JSON stored
+  /// at [keyParseStoreInstallation] — without going through `fromJson` and
+  /// constructing a full `ParseInstallation` with its dirty-tracking maps.
+  /// Subsequent calls return the value from the static cache in
+  /// [_currentInstallationId]. The install ID is immutable for the lifetime
+  /// of the app on a given device, so the cache never needs invalidation.
   static Future<String?> currentInstallationId() async {
     if (_currentInstallationId != null) return _currentInstallationId;
-    final ParseInstallation? stored = await _getFromLocalStore();
-    if (stored?.installationId != null) {
-      _currentInstallationId = stored!.installationId;
+    final String? stored = await _readInstallationIdFromStore();
+    if (stored != null) {
+      _currentInstallationId = stored;
       return _currentInstallationId;
     }
-    // No installation yet — create one. `_createInstallation` populates
-    // `_currentInstallationId` as part of its work.
-    await _createInstallation();
+    // Bootstrap. `_createInstallation` sets `_currentInstallationId` via `??=`
+    // *before* it attempts persistence; if persistence throws we clear the
+    // cache so the next call retries the write. Matches the pre-cache
+    // behaviour of `currentInstallation()`, which would re-enter
+    // `_createInstallation` on every call until storage succeeded.
+    try {
+      await _createInstallation();
+    } catch (_) {
+      _currentInstallationId = null;
+      rethrow;
+    }
     return _currentInstallationId;
+  }
+
+  /// Clears the cached installation UUID so the next call to
+  /// [currentInstallationId] re-reads from the local store. Intended for tests
+  /// that wipe storage between cases, and for apps that re-initialize Parse or
+  /// clear the core store mid-session.
+  @visibleForTesting
+  static void debugResetInstallationIdCache() {
+    _currentInstallationId = null;
+  }
+
+  /// Reads just the installation UUID out of the locally-stored JSON map,
+  /// avoiding a full `ParseInstallation()..fromJson(...)` round-trip when the
+  /// caller only needs the ID (see [currentInstallationId]).
+  static Future<String?> _readInstallationIdFromStore() async {
+    final String? installationJson = await ParseCoreData()
+        .getStore()
+        .getString(keyParseStoreInstallation);
+    if (installationJson == null) return null;
+    final dynamic decoded = json.decode(installationJson);
+    if (decoded is! Map<String, dynamic>) return null;
+    final dynamic id = decoded[keyInstallationId];
+    return id is String ? id : null;
   }
 
   /// Updates the installation with current device data
