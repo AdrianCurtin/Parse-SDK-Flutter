@@ -25,10 +25,11 @@ dependencies:
   flutter:
     sdk: flutter
 
-  parse_server_sdk: ">=9.5.0 <10.0.0"
-  # Uncomment for local testing
-  #parse_server_sdk:
-  #   path: ../dart
+  # Pin the dart sibling within this repo so consumers of this flutter
+  # package via git pick up local fixes (e.g. _getNameLocalTimeZone) instead
+  # of resolving parse_server_sdk from pub.dev.
+  parse_server_sdk:
+    path: ../dart
 
   # Networking
   connectivity_plus: ^7.0.0
