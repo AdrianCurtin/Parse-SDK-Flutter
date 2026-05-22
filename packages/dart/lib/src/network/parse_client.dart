@@ -85,8 +85,10 @@ abstract class ParseClient {
     }
     String? installationId;
     try {
-      installationId =
-          (await ParseInstallation.currentInstallation()).installationId;
+      // Cached after first call — the install ID is immutable per device, so
+      // we avoid hitting the local store + JSON-decoding the full installation
+      // on every HTTP request.
+      installationId = await ParseInstallation.currentInstallationId();
     } catch (_) {
       return options?.headers;
     }

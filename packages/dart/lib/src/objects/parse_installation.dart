@@ -64,6 +64,25 @@ class ParseInstallation extends ParseObject {
     return (await _getFromLocalStore()) ?? (await _createInstallation());
   }
 
+  /// Returns the current installation's UUID without parsing the full
+  /// installation document. Caches the value in [_currentInstallationId] after
+  /// the first resolution so hot paths (e.g. `ParseClient.buildHeaders`, which
+  /// runs on every HTTP request) don't repeatedly hit the local store and
+  /// re-decode JSON. The install ID is immutable for the lifetime of the app
+  /// on a given device, so the cache never needs invalidation.
+  static Future<String?> currentInstallationId() async {
+    if (_currentInstallationId != null) return _currentInstallationId;
+    final ParseInstallation? stored = await _getFromLocalStore();
+    if (stored?.installationId != null) {
+      _currentInstallationId = stored!.installationId;
+      return _currentInstallationId;
+    }
+    // No installation yet — create one. `_createInstallation` populates
+    // `_currentInstallationId` as part of its work.
+    await _createInstallation();
+    return _currentInstallationId;
+  }
+
   /// Updates the installation with current device data
   Future<void> _updateInstallation() async {
     //Device type
